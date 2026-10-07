@@ -1,68 +1,59 @@
-try:
-    from lab_01.models import Product
-except ImportError:
-    from dataclasses import dataclass
-    @dataclass
-    class Product:
-        name: str
-        category: str
-        price: float
-        quantity: int
-        total_value: float
-
-import csv
 import itertools
-from typing import Iterable, Iterator, Generator
+import random
+from typing import Generator, Iterable, Any
 
-def read_products_lazy(file_path: str) -> Generator[Product, None, None]:
-    """Генератор для потокового читання великого файлу (lazy loading)."""
-    with open(file_path, mode='r', encoding='utf-8') as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            yield Product(
-                name=row['name'],
-                category=row['category'],
-                price=float(row['price']),
-                quantity=int(row['quantity']),
-                total_value=float(row['price']) * int(row['quantity'])
-            )
+# Варіант №3: Аналіз транзакцій. 
+# Створити генератор для читання лог-файлу транзакцій, 
+# відфільтрувати лише успішні (status="success"), 
+# вирахувати податок 20% (якщо сума > 1000), 
+# згрупувати за типом валюти та вивести суму транзакцій по кожній валюті.
 
-def filter_by_category_lazy(products: Iterable[Product], category: str) -> Iterator[Product]:
-    """Lazy-фільтрація товарів за категорією."""
-    return (p for p in products if p.category == category)
+def generate_mock_data(n: int = 100) -> Generator[str, None, None]:
+    """Генератор, що емулює читання великого файлу з транзакціями."""
+    currencies = ["USD", "EUR", "UAH"]
+    statuses = ["success", "failed", "pending"]
+    for _ in range(n):
+        amount = random.randint(10, 5000)
+        currency = random.choice(currencies)
+        status = random.choice(statuses)
+        yield f"{amount},{currency},{status}"
 
-def apply_discount(products: Iterable[Product], discount: float) -> Iterator[Product]:
-    """Lazy-трансформація: застосування знижки до ціни."""
-    for p in products:
-        p.price *= (1 - discount)
-        p.total_value = p.price * p.quantity
-        yield p
+def stream_reader(source: Iterable[str]) -> Generator[dict, None, None]:
+    """Парсинг рядків у словники."""
+    for line in source:
+        parts = line.strip().split(',')
+        if len(parts) == 3:
+            yield {"amount": float(parts[0]), "currency": parts[1], "status": parts[2]}
 
-def batch_process(products: Iterable[Product], size: int) -> Generator[list[Product], None, None]:
-    """Групування товарів у батчі (batching)."""
-    it = iter(products)
-    while True:
-        batch = list(itertools.islice(it, size))
-        if not batch:
-            break
-        yield batch
+def filter_success(data: Iterable[dict]) -> Generator[dict, None, None]:
+    """Фільтрація лише успішних транзакцій."""
+    yield from (item for item in data if item["status"] == "success")
+
+def apply_tax(data: Iterable[dict]) -> Generator[dict, None, None]:
+    """Розрахунок податку 20% для транзакцій > 1000."""
+    for item in data:
+        if item["amount"] > 1000:
+            item["amount"] *= 0.8  # Залишок після податку
+        yield item
 
 def main():
-    # Симуляція великого набору даних (генератор)
-    def data_source():
-        for i in range(1, 21):
-            yield Product(f"Product_{i}", "Electronics" if i % 2 == 0 else "Books", i * 10.0, 2, 0.0)
-
-    print("--- Потокова обробка даних ---")
+    # Джерело: емуляція потоку даних
+    raw_data = generate_mock_data(50)
     
-    # 1. Потоковий конвеєр (Lazy Pipeline)
-    # Джерело -> Фільтрація -> Знижка -> Батчі
-    filtered = filter_by_category_lazy(data_source(), "Electronics")
-    discounted = apply_discount(filtered, 0.1)
-    pipeline = batch_process(discounted, size=3)
+    # Lazy Pipeline
+    parsed = stream_reader(raw_data)
+    successful = filter_success(parsed)
+    processed = apply_tax(successful)
+    
+    # Для групування нам потрібно відсортувати дані за валютою
+    # Оскільки ми хочемо зберегти lazy evaluation, ми використовуємо список лише для сортування
+    # В реальних умовах для великих файлів дані мають бути попередньо відсортовані у зовнішньому файлі
+    sorted_data = sorted(processed, key=lambda x: x["currency"])
+    
+    print("Результати обробки транзакцій (Сума після податку за валютою):")
+    for currency, group in itertools.groupby(sorted_data, key=lambda x: x["currency"]):
+        total = sum(item["amount"] for item in group)
+        print(f"Валюта {currency}: {total:.2f}")
 
-    for i, batch in enumerate(pipeline):
-        print(f"Batch {i+1}: {[p.name for p in batch]}")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

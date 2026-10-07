@@ -9,3 +9,6 @@ description = "Laboratory work #3 (Variant 3)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
+
+[project.scripts]
+lab_03 = "lab_03.main:main"
