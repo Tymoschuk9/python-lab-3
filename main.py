@@ -1,59 +1,59 @@
 import itertools
+import typing
 import random
-from typing import Generator, Iterable, Any
 
-# Варіант №3: Аналіз транзакцій. 
-# Створити генератор для читання лог-файлу транзакцій, 
-# відфільтрувати лише успішні (status="success"), 
-# вирахувати податок 20% (якщо сума > 1000), 
-# згрупувати за типом валюти та вивести суму транзакцій по кожній валюті.
+# Варіант №3: Обробка потоку логів транзакцій.
+# Завдання: Створити конвеєр для обробки нескінченного потоку логів (користувач, сума, статус),
+# відфільтрувати успішні транзакції, збільшити суму на 10% (кешбек), 
+# та вибрати лише транзакції на суму більше 500 одиниць.
 
-def generate_mock_data(n: int = 100) -> Generator[str, None, None]:
-    """Генератор, що емулює читання великого файлу з транзакціями."""
-    currencies = ["USD", "EUR", "UAH"]
+class Transaction:
+    def __init__(self, user_id: int, amount: float, status: str):
+        self.user_id = user_id
+        self.amount = amount
+        self.status = status
+
+    def __repr__(self):
+        return f"Transaction(user={self.user_id}, amount={self.amount:.2f}, status='{self.status}')"
+
+def infinite_transaction_generator() -> typing.Generator[Transaction, None, None]:
+    """Генератор нескінченного потоку транзакцій."""
     statuses = ["success", "failed", "pending"]
-    for _ in range(n):
-        amount = random.randint(10, 5000)
-        currency = random.choice(currencies)
-        status = random.choice(statuses)
-        yield f"{amount},{currency},{status}"
+    while True:
+        yield Transaction(
+            user_id=random.randint(1, 100),
+            amount=round(random.uniform(10.0, 1000.0), 2),
+            status=random.choice(statuses)
+        )
 
-def stream_reader(source: Iterable[str]) -> Generator[dict, None, None]:
-    """Парсинг рядків у словники."""
-    for line in source:
-        parts = line.strip().split(',')
-        if len(parts) == 3:
-            yield {"amount": float(parts[0]), "currency": parts[1], "status": parts[2]}
-
-def filter_success(data: Iterable[dict]) -> Generator[dict, None, None]:
+def filter_successful(transactions: typing.Iterable[Transaction]) -> typing.Iterator[Transaction]:
     """Фільтрація лише успішних транзакцій."""
-    yield from (item for item in data if item["status"] == "success")
+    return (t for t in transactions if t.status == "success")
 
-def apply_tax(data: Iterable[dict]) -> Generator[dict, None, None]:
-    """Розрахунок податку 20% для транзакцій > 1000."""
-    for item in data:
-        if item["amount"] > 1000:
-            item["amount"] *= 0.8  # Залишок після податку
-        yield item
+def apply_cashback(transactions: typing.Iterable[Transaction]) -> typing.Iterator[Transaction]:
+    """Нарахування 10% кешбеку."""
+    for t in transactions:
+        t.amount *= 1.10
+        yield t
+
+def filter_high_value(transactions: typing.Iterable[Transaction], min_amount: float) -> typing.Iterator[Transaction]:
+    """Фільтрація транзакцій вище заданого ліміту."""
+    return filter(lambda t: t.amount > min_amount, transactions)
 
 def main():
-    # Джерело: емуляція потоку даних
-    raw_data = generate_mock_data(50)
+    print("--- Потокова обробка транзакцій (Варіант №3) ---")
     
-    # Lazy Pipeline
-    parsed = stream_reader(raw_data)
-    successful = filter_success(parsed)
-    processed = apply_tax(successful)
+    # Створення конвеєра (Lazy Pipeline)
+    raw_stream = infinite_transaction_generator()
+    successful = filter_successful(raw_stream)
+    with_cashback = apply_cashback(successful)
+    high_value = filter_high_value(with_cashback, 500.0)
     
-    # Для групування нам потрібно відсортувати дані за валютою
-    # Оскільки ми хочемо зберегти lazy evaluation, ми використовуємо список лише для сортування
-    # В реальних умовах для великих файлів дані мають бути попередньо відсортовані у зовнішньому файлі
-    sorted_data = sorted(processed, key=lambda x: x["currency"])
+    # Обмеження потоку за допомогою islice
+    final_stream = itertools.islice(high_value, 5)
     
-    print("Результати обробки транзакцій (Сума після податку за валютою):")
-    for currency, group in itertools.groupby(sorted_data, key=lambda x: x["currency"]):
-        total = sum(item["amount"] for item in group)
-        print(f"Валюта {currency}: {total:.2f}")
+    for i, transaction in enumerate(final_stream, 1):
+        print(f"Обробка #{i}: {transaction}")
 
 if __name__ == "__main__":
     main()
